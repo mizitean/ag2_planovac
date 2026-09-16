@@ -1,0 +1,47 @@
+name: planovac
+
+# Verejne repo, ktore len spusta workflowy v sukromnom repe mizitean/ag2_data.
+# Preco: na sukromnom repe s planom Free GitHub `schedule` (cron) v praxi nespusta,
+# rucne workflow_dispatch funguje. Verejne repo ma cron zadarmo a neobmedzene.
+# AG2_TOKEN je fine-grained PAT s pravom Actions: read/write LEN na ag2_data.
+# Rozvrh je kopia toho v ag2_data: husto okolo medianu prichodu behov (UTC).
+
+on:
+  schedule:
+    # GFS: init+3:37, 3:47, 3:57, 4:11, 4:31  (inity 00/06/12/18 UTC)
+    - cron: '37,47,57 3,9,15,21 * * *'
+    - cron: '11,31 4,10,16,22 * * *'
+    # ECMWF/AIFS: init+5:21, 5:31, 5:41, 5:51, 6:07, 6:27, 6:51
+    - cron: '21,31,41,51 5,11,17,23 * * *'
+    - cron: '7,27,51 0,6,12,18 * * *'
+    # denna kontrola konzistencie
+    - cron: '13 7 * * *'
+  workflow_dispatch:
+    inputs:
+      workflow:
+        description: 'zber.yml alebo kontrola.yml'
+        default: 'zber.yml'
+
+permissions: {}
+
+jobs:
+  spusti:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ktory workflow
+        id: w
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            w="${{ inputs.workflow }}"
+          elif [ "${{ github.event.schedule }}" = "13 7 * * *" ]; then
+            w="kontrola.yml"
+          else
+            w="zber.yml"
+          fi
+          echo "w=$w" >> "$GITHUB_OUTPUT"
+          echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) cron='${{ github.event.schedule }}' -> $w"
+      - name: Spusti v ag2_data
+        env:
+          GH_TOKEN: ${{ secrets.AG2_TOKEN }}
+        run: gh workflow run "${{ steps.w.outputs.w }}" --repo mizitean/ag2_data --ref main
