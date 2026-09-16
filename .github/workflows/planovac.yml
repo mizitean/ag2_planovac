@@ -4,18 +4,11 @@ name: planovac
 # Preco: na sukromnom repe s planom Free GitHub `schedule` (cron) v praxi nespusta,
 # rucne workflow_dispatch funguje. Verejne repo ma cron zadarmo a neobmedzene.
 # AG2_TOKEN je fine-grained PAT s pravom Actions: read/write LEN na ag2_data.
-# Rozvrh je kopia toho v ag2_data: husto okolo medianu prichodu behov (UTC).
+# ROZVRH NIE JE TU: GitHub cron nespustal ani na tomto verejnom repe (16.9.2026, 2 h nic).
+# Spusta ho cron-job.org (5 jobov, ucet mizitean, casy UTC) cez workflow_dispatch tohto
+# workflowu tokenom planovac-dispatch (fine-grained PAT, Actions len na ag2_planovac).
 
 on:
-  schedule:
-    # GFS: init+3:37, 3:47, 3:57, 4:11, 4:31  (inity 00/06/12/18 UTC)
-    - cron: '57,47,37 21,15,9,3 * * *'
-    - cron: '31,11 22,16,10,4 * * *'
-    # ECMWF/AIFS: init+5:21, 5:31, 5:41, 5:51, 6:07, 6:27, 6:51
-    - cron: '51,41,31,21 23,17,11,5 * * *'
-    - cron: '51,27,7 18,12,6,0 * * *'
-    # denna kontrola konzistencie
-    - cron: '13 7 * * *'
   workflow_dispatch:
     inputs:
       workflow:

@@ -1,7 +1,8 @@
 name: tik
+# kanarik: ak niekedy GitHub cron na tomto repe nabehne, tu to bude vidiet (raz za hodinu, zadarmo)
 on:
   schedule:
-    - cron: '5,15,25,35,45,55 * * * *'
+    - cron: '5 * * * *'
   workflow_dispatch:
 permissions:
   contents: read
