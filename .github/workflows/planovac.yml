@@ -2,11 +2,18 @@ name: planovac
 
 # Verejne repo, ktore len spusta workflowy v sukromnom repe mizitean/ag2_data.
 # Preco: na sukromnom repe s planom Free GitHub `schedule` (cron) v praxi nespusta,
-# rucne workflow_dispatch funguje. Verejne repo ma cron zadarmo a neobmedzene.
-# AG2_TOKEN je fine-grained PAT s pravom Actions: read/write LEN na ag2_data.
+# rucne workflow_dispatch funguje. Verejne repo ma Actions zadarmo a neobmedzene.
+# AG2_TOKEN je fine-grained PAT LEN na ag2_data: Actions read/write + Contents read (stav.json).
 # ROZVRH NIE JE TU: GitHub cron nespustal ani na tomto verejnom repe (16.9.2026, 2 h nic).
-# Spusta ho cron-job.org (5 jobov, ucet mizitean, casy UTC) cez workflow_dispatch tohto
+# Spusta ho cron-job.org (ucet mizitean) kazdych 10 min cez workflow_dispatch tohto
 # workflowu tokenom planovac-dispatch (fine-grained PAT, Actions len na ag2_planovac).
+#
+# Brana (od 11.10.2026): zber.yml sa spusti, len ked ag2_data/stav.json hovori, ze je cas
+# (`dalsi_poll` = poll.dalsi_poll: cakajuce behy x interval modelu, zaciatky naucene z logu).
+# Minuty Actions sa uctuju za job, tak sa plati len za dopyt, ktory ma co stiahnut.
+# Zber, ktory bezi alebo zacal pred < 8 min, sa nespusti (po zbere bez pushu stav.json by
+# inak bezal kazdy tik). stav.json nedostupny (PAT bez Contents: read) -> stary takt: zber
+# najviac raz za 15 min (= kazdy druhy tik), warning v behu.
 
 on:
   workflow_dispatch:
@@ -14,27 +21,47 @@ on:
       workflow:
         description: 'zber.yml alebo kontrola.yml'
         default: 'zber.yml'
+      vynutit:
+        description: 'spustit hned, bez brany'
+        type: boolean
+        default: false
 
 permissions: {}
+
+env:
+  GH_TOKEN: ${{ secrets.AG2_TOKEN }}
+  REPO: mizitean/ag2_data
 
 jobs:
   spusti:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: Ktory workflow
-        id: w
+      - name: Brana
+        id: brana
+        if: ${{ inputs.workflow == 'zber.yml' && !inputs.vynutit }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            w="${{ inputs.workflow }}"
-          elif [ "${{ github.event.schedule }}" = "13 7 * * *" ]; then
-            w="kontrola.yml"
+          teraz=$(date -u +%s)
+          dalsi=$(gh api "repos/$REPO/contents/stav.json" --jq .content 2>/dev/null | base64 -d | jq -r '.dalsi_poll // empty' || true)
+          if [ -n "$dalsi" ]; then
+            prah=480
+            if [ "$teraz" -lt $(( $(date -u -d "$dalsi" +%s) - 120 )) ]; then
+              echo "$(date -u +%H:%M:%SZ) dalsi_poll=$dalsi -> caka"
+              echo "spustit=nie" >> "$GITHUB_OUTPUT"; exit 0
+            fi
           else
-            w="zber.yml"
+            prah=900
+            echo "::warning::stav.json z $REPO sa nedal precitat (AG2_TOKEN bez Contents: read?) -> zber najviac raz za 15 min"
           fi
-          echo "w=$w" >> "$GITHUB_OUTPUT"
-          echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) cron='${{ github.event.schedule }}' -> $w"
+          posledny=$(gh run list --repo "$REPO" --workflow zber.yml --limit 1 --json createdAt,status --jq '.[0] | "\(.createdAt) \(.status)"' 2>/dev/null || true)
+          set -- $posledny
+          if [ -n "${1:-}" ] && { [ "$2" != "completed" ] || [ "$teraz" -lt $(( $(date -u -d "$1" +%s) + prah )) ]; }; then
+            echo "$(date -u +%H:%M:%SZ) dalsi_poll=${dalsi:-?} posledny zber $1 $2 -> uz bezi"
+            echo "spustit=nie" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "$(date -u +%H:%M:%SZ) dalsi_poll=${dalsi:-?} -> spustam"
+          echo "spustit=ano" >> "$GITHUB_OUTPUT"
+
       - name: Spusti v ag2_data
-        env:
-          GH_TOKEN: ${{ secrets.AG2_TOKEN }}
-        run: gh workflow run "${{ steps.w.outputs.w }}" --repo mizitean/ag2_data --ref main
+        if: ${{ steps.brana.outputs.spustit != 'nie' }}
+        run: gh workflow run "${{ inputs.workflow || 'zber.yml' }}" --repo "$REPO" --ref main
